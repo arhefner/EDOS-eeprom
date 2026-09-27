@@ -1,0 +1,10 @@
+; Extra synthetic opcodes, on top of the ELF-DOS SDK's own opcodes.def.
+;
+; LUNTL is UNTL (as Elf-eeprom and Elf-maxmon define it) with a long
+; branch in place of the short one. The short form is what those two
+; projects use, but it carries a page constraint -- "3A T2" is an error
+; if the loop top is not in the assembler's current 256-byte page -- and
+; every loop in eeprom.asm sits inside code that also has to be page-
+; aligned for the bit-banged serial routines' own timing. Paying three
+; machine cycles per iteration is the cheaper of the two prices.
+.op "LUNTL","RW","2$1 9$1 FB FF CA H2 L2"

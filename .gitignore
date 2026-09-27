@@ -1,0 +1,9 @@
+.vscode
+eeprom
+*.prg
+*.build
+*.lst
+*.lkb
+*.hex
+*.bin
+__pycache__/
