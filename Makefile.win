@@ -1,0 +1,43 @@
+#
+# Makefile.win - EDOS-eeprom build (Windows nmake port)
+#
+# Usage:
+#   nmake /F Makefile.win                   build eeprom (default)
+#   nmake /F Makefile.win TARGET=1802MAX    build for another machine
+#   nmake /F Makefile.win clean             remove all generated files
+#
+# Mirrors the project's Linux Makefile. Assumes asm02.exe and link02.exe
+# are already on PATH.
+#
+# TARGET picks the machine out of include\sysconfig.inc; the default is
+# the same as the Linux Makefile's. Changing TARGET does not by itself
+# force a rebuild, so run "clean" first when switching machines.
+#
+# DIFFERENCE FROM THE LINUX MAKEFILE: there is no "test" target. The
+# suite (tests\test_eeprom.py) drives the real mem-xfr over a pty, and
+# neither exists on Windows; run it from Linux or WSL instead.
+
+ASM    = asm02
+LINK   = link02
+TARGET = 1802MINI
+
+ASMFLAGS = -r -D$(TARGET)
+LFLAGS   = -b -be -r
+
+HEADERS = include\sysconfig.inc include\eeprom.def \
+        include\fast_uart4000.asm include\fast_uart1790.asm \
+        elfdos-sdk\include\opcodes.def elfdos-sdk\include\kernel_api.inc
+
+all: eeprom
+
+eeprom: eeprom.prg
+	$(LINK) $(LFLAGS) -o eeprom eeprom.prg
+	-del /F /Q eeprom.lkb
+
+eeprom.prg: eeprom.asm $(HEADERS)
+	$(ASM) $(ASMFLAGS) eeprom.asm
+
+clean:
+	-del /F /Q eeprom eeprom.prg eeprom.build eeprom.lst eeprom.lkb
+	-del /F /Q include\*.prg include\*.build include\*.lst
+	-if exist tests\__pycache__ rmdir /S /Q tests\__pycache__
