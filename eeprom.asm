@@ -1018,12 +1018,45 @@ ee_ucnt1:   mov   r9,r7                 ; sync with the far end
             mov   ra,ee_buf
             mov   rc,r7
             dec   rc
+
+            ; The data bytes are not echoed, so nothing paces the host but
+            ; its own delay, and a call to ee_read for each one costs more
+            ; than a byte time at 57600 baud. When the device is the UART,
+            ; read it right here instead; this loop keeps up with bytes
+            ; sent back-to-back.
+
+            mov   r8,ee_uart
+            ldn   r8
+            xri   DEV_UART
+            lbnz  ee_urdlp
+
+          #if UART_GROUP
+            sex   r3
+            out   EXP_PORT
+            db    UART_GROUP
+            sex   r2
+          #endif
+ee_urfast:  inp   UART_STATUS           ; wait for data available
+            ani   1
+            lbz   ee_urfast
+            inp   UART_DATA
+            str   ra
+            inc   ra
+            luntl rc,ee_urfast
+          #if UART_GROUP
+            sex   r3
+            out   EXP_PORT
+            db    NO_GROUP
+            sex   r2
+          #endif
+            lbr   ee_urdone
+
 ee_urdlp:   call  ee_read
             str   ra
             inc   ra
             luntl rc,ee_urdlp
 
-            mov   ra,ee_buf
+ee_urdone:  mov   ra,ee_buf
             call  ee_prog
             lbdf  ee_e_write
             call  ee_vrfy

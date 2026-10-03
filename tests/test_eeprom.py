@@ -42,12 +42,16 @@ MEMXFR = os.path.join(os.path.dirname(REPO), "Elf-xfer", "mem-xfr", "mem-xfr")
 ASM = os.environ.get("ASM", "/opt/elfc/asm02")
 LINK = os.environ.get("LINK", "/opt/elfc/link02")
 
-# The machines worth running the whole suite against, and the port each
-# reaches its RAM overlay through (sysconfig.inc's own RTC_PORT). 1802MAX
-# is not a different board here -- it is the configuration an 1802/Mini
-# running mBIOS built as "max" actually uses, which moves the overlay to
-# port 1 and switches the bit-banged routines to the fixed-rate ones.
-TARGETS = {"1802MINI": 5, "1802MAX": 1}
+# The machines worth running the whole suite against, and how each reaches
+# its RAM overlay: sysconfig.inc's own EXP_PORT, RTC_GROUP and RTC_PORT.
+# 1802MAX is not a different board here -- it is the configuration an
+# 1802/Mini running mBIOS built as "max" actually uses, which moves the
+# overlay control from expander group 1 to port 1 of the default group and
+# switches the bit-banged routines to the fixed-rate ones.
+TARGETS = {
+    "1802MINI": dict(exp_port=5, rtc_group=1, rtc_port=3),
+    "1802MAX": dict(exp_port=5, rtc_group=0, rtc_port=1),
+}
 
 passes, failures = [], []
 TMP = tempfile.mkdtemp(prefix="eeprom-test.")
@@ -99,7 +103,7 @@ def run(args, rom=None, uart_fd=None, re_hi=0x00, seconds=90.0,
         image = f.read()
     uart = emu1802.Uart(uart_fd)
     m, c = emu1802.build(image, ["EEPROM"] + list(args), uart=uart,
-                         re_hi=re_hi, rtc_port=TARGETS[target], bios=bios,
+                         re_hi=re_hi, bios=bios, **TARGETS[target],
                          console=console)
     if rom is not None:
         m.rom = rom
@@ -343,7 +347,7 @@ def test_update_whole_chip(target="1802MINI"):
         f.write(body)
 
     r = with_memxfr(["-s", "-d", "0", "-a", "0x8000", src], ["update"],
-                    rom=rom)
+                    rom=rom, target=target)
 
     check("update: emulator ran clean [%s]" % target, "error" not in r,
           repr(r.get("error")))

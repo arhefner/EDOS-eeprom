@@ -138,13 +138,15 @@ class Uart:
 class Machine:
     LOW_TOP = 0x8000
 
-    def __init__(self, uart=None, rom=None, rtc_port=5):
+    def __init__(self, uart=None, rom=None, rtc_port=1, rtc_group=0,
+                 exp_port=5):
         self.low = bytearray(self.LOW_TOP)
         self.ovl = bytearray(0x8000)
         self.rom = rom if rom is not None else Rom()
-        self.rtc_port = rtc_port        # 5 on the Mini, 1 under the MAX
-                                        # configuration -- sysconfig.inc's
-                                        # RTC_PORT, whatever the board
+        self.rtc_port = rtc_port        # sysconfig.inc's RTC_PORT, and the
+        self.rtc_group = rtc_group      # RTC_GROUP it is reached in: the
+        self.exp_port = exp_port        # overlay control only answers while
+        self.group = 0                  # EXP_PORT has that group selected
         self.overlay = True
         self.uart = uart if uart is not None else Uart()
         self.console = bytearray()
@@ -174,7 +176,9 @@ class Machine:
             self.write(addr + i, b)
 
     def out(self, port, value):
-        if port == self.rtc_port:
+        if port == self.exp_port:
+            self.group = value
+        elif port == self.rtc_port and self.group == self.rtc_group:
             if value == 0x80:
                 self.overlay = False
                 self.overlay_off_count += 1
@@ -481,15 +485,16 @@ def lbr(addr):
     return bytes([0xC0, (addr >> 8) & 0xFF, addr & 0xFF])
 
 
-def build(program, args, uart=None, re_hi=0x00, rtc_port=5, bios="mbios",
-          console="uart"):
+def build(program, args, uart=None, re_hi=0x00, rtc_port=1, rtc_group=0,
+          exp_port=5, bios="mbios", console="uart"):
     """Load `program` at PROG_BASE with `args` as its argv, ready to run.
 
     bios="mbios" publishes the $003C console vector the real thing does,
     pointing at whichever routine `console` names; bios="classic" leaves
     that vector clear, so only re_hi is left to go on.
     """
-    m = Machine(uart=uart, rtc_port=rtc_port)
+    m = Machine(uart=uart, rtc_port=rtc_port, rtc_group=rtc_group,
+                exp_port=exp_port)
     m.load(PROG_BASE, program)
 
     m.load(F_BTYPE, lbr(MBIOS_BTYPE_ROUTINE))

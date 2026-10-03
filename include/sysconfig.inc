@@ -17,6 +17,8 @@
           ; Hardware configuration for each supported machine. Select one by
           ; defining its name when assembling mbios.asm, e.g. -D1802MAX.
 
+#define NO_GROUP       0                ; hardware defined - do not change
+
 #ifdef 1802MINI
   #define BRMK         bn2              ; branch on serial mark
   #define BRSP         b2               ; branch on serial space

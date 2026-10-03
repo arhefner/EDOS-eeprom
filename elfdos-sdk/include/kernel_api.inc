@@ -222,11 +222,7 @@ FCB_IOBUF_LEN:  equ     512
 ;               not RD, since RD now carries the FCB pointer). The
 ;               full signed 32-bit range is accepted; file positions
 ;               and sizes are likewise supported up to the full 32
-;               bits FCB_FSIZE/FCB_FPOS hold (the underlying cluster-
-;               hop computation is only exercised up to a documented
-;               ~32MB in practice -- see kernel/file.asm's own
-;               fopen_check_append/fsk_general comments -- but is
-;               correct for any position that fits in 32 bits).
+;               bits FCB_FSIZE/FCB_FPOS hold.
 ;               Returns: DF = 0 on success (RA:RD = the resulting
 ;               absolute 32-bit position; RA = high word, RD = low
 ;               word. Widened 2026-09-08 -- RD alone used to be the
@@ -430,6 +426,11 @@ ATTR_HIDDEN:    equ     $02         ; DIRENT_ATTR bit set for hidden
                                     ; from kernel.inc, same "decoupled,
                                     ; not #included" reasoning as
                                     ; ATTR_DIR above
+ATTR_RDONLY:    equ     $01         ; DIRENT_ATTR bit set for read-only
+                                    ; files (2026-09-28): K_FILE_OPEN
+                                    ; refuses mode 1/2 and K_FILE_DELETE
+                                    ; refuses the file; reading and
+                                    ; renaming are allowed, as in MS-DOS
 
 ; ---- BIOS passthroughs (see include/bios.inc for each one's convention) ----
 ; Calling through here rather than directly into BIOS means a program
@@ -651,7 +652,11 @@ CUR_DRIVE_OFF:     equ  DRIVE_CUR_DIR_OFF + DRIVE_COUNT*2   ; 1 byte
 ; slot, 0 = free. Since 2026-09-09 a slot's letter is no longer 'C' +
 ; its index -- any slot may carry any letter A-Z -- so this table is the
 ; only way to convert either direction. lib/drives.asm wraps it; prefer
-; that to reading it directly.
+; that to reading it directly. A lettered slot is not necessarily
+; usable: MOUNT gives an UNFORMATTED partition a letter but leaves its
+; drive_present byte 0 (only BPBBLK_PART1_LBA/BPBBLK_DEV are filled in),
+; and FORMAT sets drive_present once it has written a filesystem.
+; Check drive_present before reading any other field of the entry.
 DRIVE_LETTER_OFF:  equ  CUR_DRIVE_OFF + 2      ; +1 for cur_drive,
                                                 ; +1 for active_bpb_drive
                                                 ; (which is deliberately
@@ -796,6 +801,21 @@ K_HIMEM_RELEASE:    equ     $018B       ; -> kernel_himem_release
 ;   Returns: DF = 0 always
 K_DRIVE_INVALIDATE: equ     $018E       ; -> kernel_drive_invalidate
 
+; TERM_ROWS/TERM_COLS: the console terminal's size in rows/columns, one
+; byte each, kept by the kernel in volatile RAM (2026-09-30, kernel
+; v1.2). DATA bytes at fixed addresses, read and written directly -- no
+; call. 0 means unknown: that is the value at every boot. TERMSIZE sets
+; both, along with ROWS/COLUMNS. Values above 255 are stored as 255.
+; To lay out output, call term_size (lib/term.asm) rather than reading
+; these: it falls back to ROWS/COLUMNS and then 24x80 when they are 0.
+;
+; Why here and not only in the environment: reading COLUMNS means
+; opening and scanning /cfg/env.dat, which is fine once per program run
+; but far too slow for the line editor (lib/lineedit.asm), which needs
+; the width at the start of every input line to wrap long lines.
+TERM_ROWS:          equ     $0191       ; byte: terminal rows, 0=unknown
+TERM_COLS:          equ     $0192       ; byte: terminal columns, 0=unknown
+
 ; GLOB_BUF_LEN REMOVED along with K_GLOB_RESERVE above (dead code,
 ; 2026-08-26) -- its only use was sizing that reservation.
 
@@ -867,7 +887,7 @@ PT_ENTRY_LEN:   equ     16          ; bytes between successive MBR
                                     ; PT_OFFSET + i*PT_ENTRY_LEN
 PT_LBA_OFF:     equ     8           ; LBA start within entry (4 bytes, LE)
 
-; next free jump-table slot address: $0191
+; next free jump-table slot address: $0193 (after the TERM_ROWS/TERM_COLS data bytes)
 ;
 ; This comment has been stale in BOTH directions before ($0179 until
 ; 2026-07-27, then $0197 until 2026-09-09) while kernel.asm was right

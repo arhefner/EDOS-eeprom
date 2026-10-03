@@ -213,7 +213,8 @@ Opens a file for reading, or for reading and writing.
 - **Returns:** `DF` = 0/1. `D` is not meaningful on return. The caller
   already has the FCB pointer it passed in. `DF` = 1 also covers an FCB
   that straddles a page boundary (see above), which is a caller bug
-  rather than a filesystem condition.
+  rather than a filesystem condition, and an existing file with
+  `ATTR_RDONLY` set opened in any mode other than 0 (read).
 
 **`K_FILE_CLOSE`**
 Closes a file previously opened with `K_FILE_OPEN`.
@@ -241,10 +242,12 @@ File positions, offsets, and sizes are tracked as full 32-bit values.
   position is left unchanged in that case.
 
 **`K_FILE_DELETE`**
-Deletes a file. Refuses to delete a directory.
+Deletes a file. Refuses to delete a directory or a read-only file.
 - **Args:** `RF` = path.
-- **Returns:** `DF` = 0/1 (not found, is a directory, or an invalid
-  path component are all errors).
+- **Returns:** `DF` = 0/1 (not found, is a directory, has `ATTR_RDONLY`
+  set, or an invalid path component are all errors). `D` doesn't say
+  which; a program that wants to print "Access denied" can `K_STAT` the
+  path after a failure and test the bit, as `DEL` does.
 
 **`K_FILE_RENAME`**
 Renames a file or directory. The new name must stay within the same
@@ -306,7 +309,8 @@ Returns the next entry in a directory listing started by `K_DIR_OPEN`.
 
   `DIRENT_LEN` (139) is the total buffer size to declare. `ATTR_DIR`
   (`$10`) is set in `DIRENT_ATTR` for a subdirectory; `ATTR_HIDDEN`
-  (`$02`) is set for a hidden entry.
+  (`$02`) is set for a hidden entry; `ATTR_RDONLY` (`$01`) for a
+  read-only file.
 
 **`K_DIR_SAVE_STATE`** / **`K_DIR_RESTORE_STATE`**
 `K_DIR_OPEN`/`K_DIR_READ` share one scan position, so only one directory
@@ -393,7 +397,7 @@ Drops the cached state belonging to one drive, so its entry in the drive
 table can be replaced or cleared. Flushes and then discards the FAT cache
 if that drive is the active one, and forces the next drive switch to
 reload the table rather than assume it is already current. Used by
-`MOUNT` and `UMOUNT`.
+`MOUNT`, `UMOUNT` and `FORMAT`.
 - **Args:** `D` = drive index.
 - **Returns:** `DF` = 0 always.
 - **Call this *before* changing the drive's table entry, never after.**
@@ -631,11 +635,14 @@ Reads back the exit code of the last command that ran.
 | `DIR_STATE_LEN` | 9 | Size of the snapshot buffer `K_DIR_SAVE_STATE`/`K_DIR_RESTORE_STATE` use. |
 | `IO_TYPE_TARGET` | `PROG_BASE - 114` | Word naming the current console output routine. The kernel restores `K_TYPE` from it after every command, so a console hook must update it too; comparing it against `K_TYPE`'s address field also tells a hook whether output is redirected. |
 | `IO_READ_TARGET` | `PROG_BASE - 112` | The same, for console input and `K_READ`. |
+| `TERM_ROWS` | `$0191` | Byte: the console terminal's height in rows, 0 if unknown. Kept by the kernel, set by `TERMSIZE`. To lay out output, call `term_size` (`term.asm`), which falls back to `ROWS` and then 24; read the byte directly only where opening the environment file is too slow. |
+| `TERM_COLS` | `$0192` | Byte: the terminal's width in columns, 0 if unknown (assume 80). `read_line_ex` wraps long lines by it. Values over 255 are stored as 255. |
 | `BOOT_UNIT` | `PROG_BASE - 115` | Byte: the block device unit the system booted from, where C:-F: live. Set at boot. |
 | `DRIVE_COUNT` | 6 | How many drives can be mounted at once. A drive index runs from 0 to `DRIVE_COUNT`-1 and says nothing about the drive's letter. |
 | `MBR_PART_COUNT` | 4 | Primary partitions in an MBR partition table. Deliberately separate from `DRIVE_COUNT`; a partition number is 1 to 4 however many drives exist. |
 | `ATTR_DIR` | `$10` | `DIRENT_ATTR` bit for a subdirectory. |
 | `ATTR_HIDDEN` | `$02` | `DIRENT_ATTR` bit for a hidden entry. |
+| `ATTR_RDONLY` | `$01` | `DIRENT_ATTR` bit for a read-only file. `K_FILE_OPEN` refuses modes 1 and 2 and `K_FILE_DELETE` refuses the file; reading and renaming are allowed. Ignored on a directory. |
 
 ## Library Modules
 
@@ -654,14 +661,15 @@ up as an unresolved `drive_letter_of` at link time.
 |---|---|
 | `drives.asm` | Converting between a drive index and its letter, either way. |
 | `env.asm` | Reading, setting, and removing environment variables. A whole `NAME=VALUE` line is limited to `ENV_LINE_MAX` (128) bytes. |
-| `file_glob.asm` | Wildcard (`*`/`?`) matching that can be paused and resumed one match at a time. |
+| `file_glob.asm` | Wildcard (`*`/`?`) matching that can be paused and resumed one match at a time. `glob_init` takes a flags byte in `D`: 0 skips hidden and system entries, as MS-DOS wildcards did; `GLOB_HIDDEN` (`include/file_glob.inc`) matches them too. Load it with `ldi` after setting `RF`/`RD`, since a `mov` clobbers `D`. |
 | `fmt32.asm` | Formatting a large (32-bit) number with comma grouping. |
 | `heap_bump.asm` | A simple, fast memory allocator with no per-item `free`. |
 | `heap_malloc.asm` | A general-purpose allocator, with `free` and coalescing of freed blocks. |
 | `icall.asm` | Safely calling through an address that is only known while the program is running. |
-| `lineedit.asm` | Cursor movement and editing on a typed line - arrow keys, Home/End, and so on. |
+| `lineedit.asm` | `read_line_ex`: reading a typed line with cursor movement and editing - arrow keys, Home/End, and so on - including lines longer than the screen is wide. `RF` = buffer, `RC.0` = maximum length, `RC.1` = the column the input starts at (your prompt's length; `LE_COL_UNKNOWN` turns wrapping off), `D` = an `LE_MODE_*` value from `include/lineedit.inc`. With `LE_OPT_HIST` ORed into `D`, the Up and Down arrows return to you as `LE_KEY_UP`/`LE_KEY_DOWN`; put another line in the buffer if you like and call `read_line_resume` (`D` = 1 if you changed the buffer, 0 if not) to carry on editing. |
 | `modload.asm` | Loading a relocatable module at whatever address is currently free. |
 | `move.asm` | Renaming a file where possible, falling back to copy-then-delete otherwise. |
 | `pathstr.asm` | Turning a directory's starting cluster back into a full path string. |
+| `term.asm` | `term_size`: the screen size, `RC.1` = rows, `RC.0` = columns (1-255 each). Takes the kernel's `TERM_ROWS`/`TERM_COLS`, else the `ROWS`/`COLUMNS` variables, else 24 by 80, each dimension separately. Needs `env.asm` and `drives.asm`, and may clobber every other register. |
 | `vollabel.asm` | Reading and writing a drive's volume label. |
 | `ymodem.asm` | The YMODEM file-transfer protocol. |

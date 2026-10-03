@@ -1,7 +1,7 @@
 ELF-DOS SDK snapshot
-Packaged:       2026-09-27T15:57:10Z
-ELF-DOS commit: 4187d72067d36c60b4bf2529b327fda223731e24
-Kernel version: 1.1
+Packaged:       2026-10-02T17:42:13Z
+ELF-DOS commit: 41e3ddd9bdd3dcaaa871e838ac71d96079a0ae49-dirty
+Kernel version: 1.2
 PROG_BASE:      $0D00
 
 Headers:
@@ -25,6 +25,7 @@ Library modules (lib/):
   modload.asm
   move.asm
   pathstr.asm
+  term.asm
   vollabel.asm
   ymodem.asm
 
