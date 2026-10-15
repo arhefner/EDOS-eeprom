@@ -469,6 +469,7 @@ K_READ = 0x0151
 
 STUB_TYPE = 0x0200
 STUB_INMSG = 0x0210
+STUB_MSG = 0x0220
 
 # Elf/OS's own SCRT, laid out so R4/R5 cycle back to their entry points:
 # each half's SEP R3 has to fall immediately before the entry it returns to.
@@ -508,11 +509,11 @@ def build(program, args, uart=None, re_hi=0x00, rtc_port=1, rtc_group=0,
     for addr, code in SCRT.items():
         m.load(addr, bytes(code))
 
-    # K_TYPE / K_INMSG: the jump-table slots ELF-DOS publishes, pointing at
+    # K_TYPE / K_MSG / K_INMSG: the jump-table slots ELF-DOS publishes, pointing at
     # stubs that put each character on port 4 (this harness's console, kept
     # separate from the UART the transfer itself uses).
     m.load(K_TYPE, bytes([0xC0, STUB_TYPE >> 8, STUB_TYPE & 0xFF]))
-    m.load(K_MSG, bytes([0xC0, 0x00, 0x00]))
+    m.load(K_MSG, bytes([0xC0, STUB_MSG >> 8, STUB_MSG & 0xFF]))
     m.load(K_INMSG, bytes([0xC0, STUB_INMSG >> 8, STUB_INMSG & 0xFF]))
     m.load(K_READ, bytes([0xC0, 0x00, 0x00]))
 
@@ -526,6 +527,14 @@ def build(program, args, uart=None, re_hi=0x00, rtc_port=1, rtc_group=0,
         0x30, STUB_INMSG & 0xFF,                                # br inmsg
     ]))
     m.write(STUB_INMSG + 9, 0xD5)                               # done: sep r5
+    m.load(STUB_MSG, bytes([
+        0x4F,                                                   # lda rf
+        0xC2, STUB_MSG >> 8, (STUB_MSG + 9) & 0xFF,             # lbz done
+        0x52, 0x64, 0x22,                                       # str r2/out 4/
+                                                                # dec r2
+        0x30, STUB_MSG & 0xFF,                                  # br msg
+        0xD5,                                                   # done: sep r5
+    ]))
 
     # argv[]: the pointer table first, then the strings after it.
     argv_table = 0x0400

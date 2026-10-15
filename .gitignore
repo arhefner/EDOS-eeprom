@@ -1,5 +1,6 @@
 .vscode
 eeprom
+reset
 *.prg
 *.build
 *.lst

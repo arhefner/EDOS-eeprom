@@ -1,8 +1,12 @@
 # EDOS-eeprom
 
-`EEPROM` — an ELF-DOS utility for reading and programming the AT28C256 on an
-1802/Mini, over the serial port, using the host-side `mem-xfr` tool from
-[Elf-xfer](../Elf-xfer).
+ELF-DOS utilities for an 1802 machine with an AT28C256 EEPROM behind a RAM
+overlay:
+
+- `EEPROM` reads and programs the EEPROM over the serial port, using the
+  host-side `mem-xfr` tool from [Elf-xfer](../Elf-xfer).
+- `RESET` restarts the machine as a processor reset would (see
+  [RESET](#reset) below).
 
 ```
 EEPROM SAVE   [-a <addr>] [-l <len>] [-u|-b]
@@ -175,10 +179,37 @@ There is no timeout on the wire itself. If the host goes away mid-transfer
 the program waits forever, with the overlay still out — press reset; nothing
 is lost but the transfer.
 
+## RESET
+
+```
+RESET [addr]
+```
+
+Puts the machine in the state a hardware reset leaves it in -- RAM overlay
+off, Q off, P = 0, X = 0, interrupts enabled -- and starts executing at
+`addr`, by default `$8000`, the ROM's cold start. A real reset starts at
+`$0000`; this starts at the ROM, since `$0000` is RAM once the system is
+running. The ROM then starts up exactly as it does from the button: BIOS
+banner, device detection, overlay back on.
+
+`addr` is always hex, 1-4 digits, with an optional `$` or `0x` prefix or `h`
+suffix. The ELF-DOS shell expands `$NAME` as a variable, so a `$` prefix has
+to be quoted: `RESET '$8000'`, or just `RESET 8000`.
+
+Switching the overlay off is the part that needs this repository: while
+ELF-DOS runs, `$8000` is overlay RAM, so jumping there without it executes
+whatever happens to be in memory. Like `EEPROM`, it writes `$80` to the
+overlay port of the `TARGET` it was built for, and from that point calls
+nothing -- everything it still needs is in its own image in low RAM.
+
+What it cannot do: devices on the bus never see the reset signal. The ROM's
+startup reinitialises what it can; a device that is hung still needs the
+button.
+
 ## Building
 
-Needs [Asm/02 and Link/02](../Asm-02). `make` assembles and links `eeprom`,
-ready to copy onto an ELF-DOS volume.
+Needs [Asm/02 and Link/02](../Asm-02). `make` assembles and links `eeprom`
+and `reset`, ready to copy onto an ELF-DOS volume.
 
 ```
 make                    # build for the 1802/Mini
@@ -203,7 +234,10 @@ All seven machines in `include/sysconfig.inc` build.
 
 ## Tests
 
-`tests/` runs the real assembled binary on a CDP1802 emulator
+`make test` runs both suites, `tests/test_eeprom.py` and
+`tests/test_reset.py`.
+
+`tests/test_eeprom.py` runs the real assembled binary on a CDP1802 emulator
 (`tests/emu1802.py`) against the real `mem-xfr` over a pty. The emulator
 models the RAM overlay and an AT28C256 that actually enforces its own write
 protection, which is what lets the tests assert the things that matter:
@@ -225,3 +259,10 @@ model time: the bit-banged serial routines themselves, which are pure cycle
 counting against a baud rate, and the AT28C256's own 150 µs page-load
 window. Both stay hardware questions — which is why those routines are
 copied from the BIOS verbatim rather than written here.
+
+`tests/test_reset.py` runs `RESET` on the same emulator for `1802MINI` and
+`1802MAX`, stops it at the start address, and checks the state it hands
+over: overlay off through the machine's own port, expander group back at 0,
+nothing written above `$8000`, Q off, P = X = 0, interrupts on, R0 = the
+address. It also checks every spelling of an address and that bad ones are
+refused with the overlay left alone.

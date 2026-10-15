@@ -2,7 +2,7 @@
 # Makefile.win - EDOS-eeprom build (Windows nmake port)
 #
 # Usage:
-#   nmake /F Makefile.win                   build eeprom (default)
+#   nmake /F Makefile.win                   build eeprom and reset (default)
 #   nmake /F Makefile.win TARGET=1802MAX    build for another machine
 #   nmake /F Makefile.win clean             remove all generated files
 #
@@ -28,7 +28,7 @@ HEADERS = include\sysconfig.inc include\eeprom.def \
         include\fast_uart4000.asm include\fast_uart1790.asm \
         elfdos-sdk\include\opcodes.def elfdos-sdk\include\kernel_api.inc
 
-all: eeprom
+all: eeprom reset
 
 eeprom: eeprom.prg
 	$(LINK) $(LFLAGS) -o eeprom eeprom.prg
@@ -37,7 +37,16 @@ eeprom: eeprom.prg
 eeprom.prg: eeprom.asm $(HEADERS)
 	$(ASM) $(ASMFLAGS) eeprom.asm
 
+reset: reset.prg
+	$(LINK) $(LFLAGS) -o reset reset.prg
+	-del /F /Q reset.lkb
+
+reset.prg: reset.asm include\sysconfig.inc \
+        elfdos-sdk\include\opcodes.def elfdos-sdk\include\kernel_api.inc
+	$(ASM) $(ASMFLAGS) reset.asm
+
 clean:
 	-del /F /Q eeprom eeprom.prg eeprom.build eeprom.lst eeprom.lkb
+	-del /F /Q reset reset.prg reset.build reset.lst reset.lkb
 	-del /F /Q include\*.prg include\*.build include\*.lst
 	-if exist tests\__pycache__ rmdir /S /Q tests\__pycache__
